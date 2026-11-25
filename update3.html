@@ -1,0 +1,634 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ceres Drift: Portal</title>
+<style>
+:root{color-scheme:dark;--ink:#f2ede8;--muted:#b7b5c2;--accent:#ffa57b;--line:#e0e0ff32;--pad:clamp(22px,4.3vw,72px);--mono:"SFMono-Regular",Consolas,monospace}
+*{box-sizing:border-box}[hidden]{display:none!important}
+body{margin:0;height:100dvh;overflow:hidden;background:#080912;color:var(--ink);font:16px/1.4 system-ui,sans-serif}
+#space,.shade{position:fixed;inset:0;width:100%;height:100%}
+#space{display:block;outline:none;touch-action:none}#space.drag-mode{cursor:grab}#space.dragging{cursor:grabbing}
+.shade{pointer-events:none;background:linear-gradient(0deg,#080912ee 0%,#08091278 13%,transparent 40%),linear-gradient(180deg,#080912c2,transparent 19%)}
+header,footer{position:absolute;left:var(--pad);right:var(--pad);display:flex;align-items:center;justify-content:space-between;gap:16px;pointer-events:none}
+header{top:24px;padding-bottom:17px;border-bottom:1px solid var(--line)}footer{bottom:20px;padding-top:15px;border-top:1px solid var(--line)}
+.brand{display:flex;align-items:center;gap:12px}
+.brand-mark{display:grid;place-items:center;width:36px;height:36px;color:var(--accent);border:1px solid #ffa57b70;border-radius:50%;font-size:23px}
+.brand strong{display:block;font-size:15px;letter-spacing:.22em}
+.mono{font-family:var(--mono);font-size:10px;letter-spacing:.13em;text-transform:uppercase}
+.brand small,.metrics small{display:block;color:var(--muted)}
+.status{display:flex;align-items:center;gap:9px;color:var(--ink);text-align:center}
+.status::before{content:"";flex:none;width:6px;height:6px;border-radius:50%;background:var(--accent);box-shadow:0 0 12px #ffa57b95}
+button{color:inherit;font:inherit;cursor:pointer;pointer-events:auto}
+#reset{padding:9px 13px;background:#10101bcc;border:1px solid var(--line);border-radius:4px}#reset:hover{border-color:var(--accent)}
+.briefing{position:absolute;left:var(--pad);bottom:clamp(120px,20vh,200px);max-width:calc(100% - var(--pad)*2);pointer-events:none}
+.sector{display:flex;align-items:center;gap:10px;color:var(--accent)}.sector::before{content:"";width:23px;height:1px;background:currentColor}
+h1{margin:9px 0 15px;font-size:clamp(48px,8vw,110px);line-height:.98;font-weight:650;letter-spacing:-.078em}
+.briefing p{margin:0 0 23px;color:var(--muted);max-width:520px}
+#launch{display:inline-flex;align-items:center;gap:30px;padding:13px 16px;min-height:47px;background:var(--accent);border:0;border-radius:4px;color:#23130f;font-weight:700}
+#launch:hover{background:#ffc2a5}
+#loadModel{display:block;margin:10px 0 0;padding:9px 13px;background:#10101bcc;border:1px solid #ffa57b70;border-radius:4px;color:var(--accent)}
+#prompt{position:absolute;left:50%;bottom:clamp(110px,18vh,170px);transform:translateX(-50%);padding:9px 16px;background:#10101bcc;border:1px solid var(--accent);border-radius:4px;color:#ffc4a9;pointer-events:none}
+.controls,.metrics{display:flex;align-items:center;gap:clamp(12px,2vw,30px)}
+.control{display:flex;align-items:center;gap:7px;color:var(--muted)}
+kbd{display:inline-grid;place-items:center;min-height:21px;padding:0 5px;color:var(--ink);font:10px var(--mono);background:#151520;border:1px solid var(--line);border-radius:3px}
+.metrics>div{min-width:65px}.metrics output{display:block;font:17px/1.5 var(--mono);white-space:nowrap}
+.radar{position:absolute;right:var(--pad);bottom:91px;width:168px;padding:11px 12px 8px;background:#0d101cc4;border:1px solid var(--line);border-radius:5px;pointer-events:none}
+.radar-title{display:flex;justify-content:space-between}.radar-title span{color:var(--muted)}
+#radar{display:block;width:100%;height:auto}
+#aim{position:absolute;left:50%;top:50%;width:34px;height:34px;transform:translate(-50%,-50%);border:1px solid #e7ecff6b;border-radius:50%;pointer-events:none}
+#error{max-width:360px;color:#ffc4a9}
+@media(max-width:780px){.secondary{display:none}.radar{width:130px}}
+@media(max-width:590px),(max-height:520px){.radar,.status{display:none}.briefing{bottom:100px}.metrics .distance{display:none}}
+</style>
+</head>
+<body>
+<canvas id="space" tabindex="-1" aria-label="Third-person 3D view of an astronaut, a spaceship and an asteroid belt"></canvas>
+<div class="shade" aria-hidden="true"></div>
+<header>
+  <div class="brand"><span class="brand-mark" aria-hidden="true">✦</span><div><strong>KEPLER</strong><small class="mono">Mission console</small></div></div>
+  <div class="status mono" id="status" role="status">Standby</div>
+  <button class="mono" id="reset" type="button" title="Restart mission (R)">↻ Restart</button>
+</header>
+<main class="briefing" id="briefing">
+  <div class="sector mono">Sector 07 / Ceres landing field</div>
+  <h1>Ceres Drift</h1>
+  <p>Your ship was torn apart in the crash. Find the 5 ship parts scattered across the landing field, carry them one at a time to the build station, assemble the ship, then board it and fly through the beacon rings to open a portal. Beyond it lies Abyssal Deep, an ocean world where seawater floods the reactor: dive to the hydrothermal vents for thermal cores before the ship will fly again. Escape the ocean and another rift waits beyond the surface.</p>
+  <button id="launch" type="button"><span id="launchText">Begin mission</span><span aria-hidden="true">↗</span></button>
+  <button id="loadModel" type="button">⇪ Load your spacecraft.glb</button>
+  <input id="glbFile" type="file" accept=".glb" hidden>
+  <p id="error" role="alert" hidden></p>
+</main>
+<div id="aim" aria-hidden="true" hidden></div>
+<div id="prompt" class="mono" hidden></div>
+<aside class="radar" aria-label="Proximity radar">
+  <div class="radar-title mono">Radar <span>180 u</span></div>
+  <canvas id="radar" width="260" height="260"></canvas>
+</aside>
+<footer>
+  <div class="controls mono">
+    <span class="control"><kbd>WASD</kbd> Move / fly</span>
+    <span class="control"><kbd id="lookKey">Mouse</kbd> Look</span>
+    <span class="control secondary"><kbd>Space</kbd> Jump</span>
+    <span class="control secondary"><kbd>Q / E</kbd> Down / up</span>
+    <span class="control secondary"><kbd>Shift</kbd> Boost</span>
+    <span class="control secondary"><kbd>F</kbd> Interact</span>
+  </div>
+  <div class="metrics">
+    <div><small class="mono">Speed</small><output id="speed">0 u/s</output></div>
+    <div><small class="mono">Heading</small><output id="heading">000°</output></div>
+    <div id="o2box" hidden><small class="mono" id="o2label">Oxygen</small><output id="o2">100%</output></div>
+    <div class="distance"><small class="mono" id="distLabel">From start</small><output id="distance">0 u</output></div>
+  </div>
+</footer>
+
+<script type="importmap">
+{"imports":{"three":"https://unpkg.com/three@0.160.0/build/three.module.js","three/addons/":"https://unpkg.com/three@0.160.0/examples/jsm/"}}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+
+/* tunables */
+const SHIP_MODEL_URL='spacecraft.glb', SHIP_LENGTH=7, SHIP_FIX_DEG=[0,0,0];
+const FLY_SPEED=23, BOOST_SPEED=57, WALK=5.5, RUN=10, DISC=58, REST_Y=1.7;
+const dsc=()=>area===1?DISC:76;
+
+const byId=id=>document.getElementById(id), canvas=byId('space');
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v)), wrap=(v,s)=>v-s*Math.floor(v/s+.5), rnd=(a,b)=>a+Math.random()*(b-a);
+const V=(x,y,z)=>new THREE.Vector3(x,y,z);
+const M=(c,o)=>new THREE.MeshStandardMaterial(Object.assign({color:c,flatShading:true,roughness:.8,metalness:.1},o||{}));
+function mk(g,m,x,y,z,rx,ry,rz,s){const o=new THREE.Mesh(g,m);o.position.set(x||0,y||0,z||0);o.rotation.set(rx||0,ry||0,rz||0);if(s)o.scale.set(s[0],s[1],s[2]);return o}
+
+/* state */
+let sunL,ambL,skyMesh,starPts,planetG,renderer,scene,camera,radar,ship,astroG,ground,domeMat=null,mixer=null,lastMixer=0;
+const position=V(0,0,10), velocity=V(), astroPos=V(0,0,10), shipPos=V(0,REST_Y,-6);
+const camWorld=V(), camAim=V(), tmp=V(), offset=V(), headOff=V(), forward=V(), right=V(), flat=V(), desired=V();
+const keys=new Set(), flightKeys=new Set(['KeyW','KeyA','KeyS','KeyD','KeyQ','KeyE','KeyF','KeyR','Space','ShiftLeft','ShiftRight']);
+const rocks=[],comets=[],cells=[],rings=[],geos=[];
+let yaw=0,pitch=0,roll=0,shipYaw=0,vy=0,onGround=true;
+let mode='foot',playing=false,hadLock=false,drag=null,got=0,rg=0,repaired=false,won=false,snap=true;
+let time=0,prev=0,prevHud=-1,toast='',toastT=0;
+const say=(s,t=3)=>{toast=s;toastT=t};
+
+function start(){
+  renderer=new THREE.WebGLRenderer({canvas,antialias:true});
+  renderer.setPixelRatio(Math.min(devicePixelRatio||1,1.6));
+  scene=new THREE.Scene();scene.background=new THREE.Color(0x070810);
+  camera=new THREE.PerspectiveCamera(62,1,.1,9000);
+  radar=byId('radar').getContext('2d');
+  lights();sky();planet();rocksBuild();cometsBuild();groundBuild();buildArea2();buildArea3();buildPortal();buildAstro();buildShip();questObjects();
+  bindLoading();bindInput();resetMission();resize();
+  addEventListener('resize',resize);requestAnimationFrame(frame);
+}
+function resize(){const w=canvas.clientWidth||1,h=canvas.clientHeight||1;renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix()}
+
+/* environment (from Ceres Drift) */
+function lights(){
+  const sun=new THREE.DirectionalLight(0xfff0dd,2.6);sun.position.set(-7.2,7.8,4.2);scene.add(sun);sunL=sun;
+  ambL=new THREE.AmbientLight(0x39405f,1.6);scene.add(ambL);
+  const f=new THREE.DirectionalLight(0x9fb4ff,.5);f.position.set(7,-5,4);scene.add(f);
+}
+function sky(){
+  const c=document.createElement('canvas');c.width=c.height=1024;const x=c.getContext('2d');
+  x.fillStyle='#070810';x.fillRect(0,0,1024,1024);x.globalCompositeOperation='lighter';
+  const bl=(cx,cy,r,col)=>{const g=x.createRadialGradient(cx,cy,0,cx,cy,r);g.addColorStop(0,col);g.addColorStop(1,'rgba(0,0,0,0)');x.fillStyle=g;x.fillRect(cx-r,cy-r,r*2,r*2)};
+  bl(300,420,320,'rgba(40,60,140,.32)');bl(700,300,260,'rgba(120,45,60,.24)');bl(560,650,340,'rgba(30,45,110,.26)');bl(880,640,210,'rgba(40,80,150,.2)');
+  const tex=new THREE.CanvasTexture(c);tex.colorSpace=THREE.SRGBColorSpace;
+  skyMesh=new THREE.Mesh(new THREE.SphereGeometry(3600,32,24),new THREE.MeshBasicMaterial({map:tex,side:THREE.BackSide,depthWrite:false,fog:false}));scene.add(skyMesh);
+  const N=5200,pos=new Float32Array(N*3),col=new Float32Array(N*3),v=V();
+  for(let i=0;i<N;i++){v.randomDirection().multiplyScalar(rnd(2500,3300));pos.set([v.x,v.y,v.z],i*3);const t=Math.random(),b=.25+Math.random()*.75;col.set([(.66+t*.34)*b,(.79+t*.07)*b,(1-t*.14)*b],i*3)}
+  const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.BufferAttribute(pos,3));g.setAttribute('color',new THREE.BufferAttribute(col,3));
+  starPts=new THREE.Points(g,new THREE.PointsMaterial({size:2,sizeAttenuation:false,vertexColors:true,transparent:true,depthWrite:false,fog:false}));scene.add(starPts);
+}
+function planet(){
+  const p=new THREE.Group();p.position.set(-640,480,-2100);
+  p.add(new THREE.Mesh(new THREE.SphereGeometry(360,48,32),new THREE.MeshStandardMaterial({color:0xc07042,roughness:.85,metalness:.05,emissive:0x1c0d07,emissiveIntensity:.6})));
+  const rg=new THREE.RingGeometry(430,660,128),rp=rg.attributes.position,cl=new Float32Array(rp.count*3);
+  for(let i=0;i<rp.count;i++){const r=Math.hypot(rp.getX(i),rp.getY(i)),t=clamp((r-430)/230,0,1),gap=r>500&&r<555?.15:1,b=(.45+.3*Math.sin(r*.9))*gap*(1-t*.3);cl.set([b,b*.78,b*.6],i*3)}
+  rg.setAttribute('color',new THREE.BufferAttribute(cl,3));
+  const ring=new THREE.Mesh(rg,new THREE.MeshBasicMaterial({vertexColors:true,side:THREE.DoubleSide,transparent:true,opacity:.85,depthWrite:false,fog:false}));
+  ring.rotation.x=Math.PI/2-.32;p.add(ring);scene.add(p);planetG=p;
+}
+function asteroidGeo(phase){
+  const g=new THREE.IcosahedronGeometry(1,3),pos=g.attributes.position,v=V(),cr=V(.48,.44,.76);
+  for(let i=0;i<pos.count;i++){v.fromBufferAttribute(pos,i);const d=.22*Math.exp(-(((1-v.dot(cr))*23)**2));
+    v.multiplyScalar(1-d+.17*Math.sin(v.x*4+v.y*3-v.z*2+phase)+.085*Math.sin(v.y*9+v.z*6-v.x*5));pos.setXYZ(i,v.x*1.14,v.y*.83,v.z)}
+  g.computeVertexNormals();return g;
+}
+function rocksBuild(){
+  for(const p of [.8,2.4,5.6])geos.push(asteroidGeo(p));
+  const c=new THREE.Color();
+  for(let i=0;i<60;i++){
+    const o=V(rnd(-255,255),rnd(-180,180),rnd(-255,255));
+    if(Math.hypot(o.x,o.z)<90&&Math.abs(o.y)<70){o.x+=(o.x<0?-1:1)*90;o.z-=40}
+    const r=1.2+Math.random()**2*8;
+    const mesh=new THREE.Mesh(geos[i%3],new THREE.MeshStandardMaterial({color:c.setHSL(.07+Math.random()*.05,.18,.38+Math.random()*.12),roughness:.95,metalness:.05}));
+    mesh.scale.setScalar(r);scene.add(mesh);
+    rocks.push({mesh,radius:r,origin:o,drift:V(rnd(-3,3),rnd(-1.2,1.2),rnd(-2,2)),spin:rnd(-.27,.27),phase:rnd(0,6.28),relative:V()});
+  }
+}
+function cometsBuild(){
+  for(const s of [{o:[74,46,-165],c:[0,-81,-84],d:[-125,-48,25],r:.065},{o:[-67,-27,-150],c:[90,44,-90],d:[128,25,26],r:.051}]){
+    const head=new THREE.Mesh(new THREE.SphereGeometry(3,12,10),new THREE.MeshBasicMaterial({color:0xbdeeff,fog:false}));
+    const N=176,pos=new Float32Array(N*3),g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.BufferAttribute(pos,3));
+    const tail=new THREE.Points(g,new THREE.PointsMaterial({color:0x6bd2ff,size:1.6,transparent:true,opacity:.55,blending:THREE.AdditiveBlending,depthWrite:false,fog:false}));
+    scene.add(head,tail);
+    comets.push({head,tail,N,pos,origin:V(...s.o),curve:V(...s.c),direction:V(...s.d),rate:s.r,relative:V(),headWorld:V()});
+  }
+}
+function cometOffset(b,out,t){const a=t*b.rate;return out.set(b.curve.x*(Math.cos(a)-1)+b.direction.x*Math.sin(a),b.curve.y*(Math.cos(a)-1)+b.direction.y*Math.sin(a),b.curve.z*(Math.cos(a)-1)+b.direction.z*Math.sin(a))}
+
+/* landing field */
+function groundBuild(){
+  ground=new THREE.Group();
+  const gg=new THREE.CircleGeometry(60,22);gg.rotateX(-Math.PI/2);const gp=gg.attributes.position;
+  for(let i=0;i<gp.count;i++)if(Math.hypot(gp.getX(i),gp.getZ(i))>1)gp.setY(i,-Math.random()*.4);
+  gg.computeVertexNormals();ground.add(new THREE.Mesh(gg,M(0x6a5f58)));
+  ground.add(mk(new THREE.CylinderGeometry(9,9,.25,8),M(0x8a93a8),0,.1,-6));
+  ground.add(mk(new THREE.CylinderGeometry(10.5,10.5,.2,8),M(0xff7a1a),0,.05,-6));
+  for(let i=0;i<30;i++){const a=Math.random()*6.28,r=14+Math.random()*44,s=.5+Math.random()*2;
+    ground.add(mk(new THREE.IcosahedronGeometry(1,0),M(0x7a7068),Math.cos(a)*r,s*.3,Math.sin(a)*r-6,Math.random()*3,Math.random()*3,0,[s,s*.8,s]));obs1.push({x:Math.cos(a)*r,z:Math.sin(a)*r-6,r:s*.9,h:s*.8+.3})}
+  [[-6,-10],[6,-10],[-6,-2],[6,-2]].forEach(q=>{ground.add(mk(new THREE.CylinderGeometry(.15,.15,5,5),M(0x8a93a8),q[0],2.5,q[1]));ground.add(mk(new THREE.IcosahedronGeometry(.35,0),M(0xff7a1a,{emissive:0xff7a1a,emissiveIntensity:.6}),q[0],5.1,q[1]));obs1.push({x:q[0],z:q[1],r:.4,h:5.4})});
+  scene.add(ground);
+}
+const PARTS=['Hull','Cockpit','Engine','Wings','Tail fin'];
+let shipParts=[],shipBody=null,glbModel=null,carry=null;
+const ghostMat=()=>new THREE.MeshBasicMaterial({color:0x39c5ff,wireframe:true,transparent:true,opacity:.4,depthWrite:false});
+function partGroup(i,ghost){
+  const gm=ghost?ghostMat():null,W=gm||M(0xe8ecf2),O=gm||M(0xff7a1a),D=gm||M(0x2a3350),G=gm||M(0x8a93a8),H=Math.PI/2,g=new THREE.Group();
+  if(i===0){
+    g.add(mk(new THREE.CylinderGeometry(.7,.9,2.2,6),W,0,0,0,H));g.add(mk(new THREE.ConeGeometry(.7,1.2,6),O,0,0,1.7,H));g.add(mk(new THREE.CylinderGeometry(.84,.84,.3,6),O,0,0,-.35,H));
+    [-1,1].forEach(s=>g.add(mk(new THREE.CylinderGeometry(.04,.05,.6,4),D,s*.5,-.75,-.2,0,0,s*.35)));
+  }else if(i===1){
+    g.add(mk(new THREE.IcosahedronGeometry(.6,1),gm||M(0x39c5ff,{transparent:true,opacity:.75,emissive:0x0a5a80}),0,.55,.35,0,0,0,[1,.85,1.4]));
+  }else if(i===2){
+    g.add(mk(new THREE.CylinderGeometry(.5,.6,.5,6),D,0,0,-1.35,H));g.add(mk(new THREE.CylinderGeometry(.4,.58,.4,6),G,0,0,-1.75,H));
+    g.add(mk(new THREE.ConeGeometry(.3,.9,6),gm||M(0xffb347,{emissive:0xff7a1a,emissiveIntensity:.8}),0,0,-2.3,-H));
+  }else if(i===3){
+    [-1,1].forEach(s=>{g.add(mk(new THREE.BoxGeometry(1.4,.08,.9),G,s*1.1,-.1,-.55,0,s*.25,s*-.12));g.add(mk(new THREE.BoxGeometry(.2,.12,.9),O,s*1.8,-.1,-.7,0,s*.25,s*-.12))});
+  }else g.add(mk(new THREE.BoxGeometry(.08,.7,.8),O,0,.7,-.85));
+  return g;
+}
+function setBuilt(i,on){shipParts[i].real.visible=on;shipParts[i].ghost.visible=!on}
+function refreshShip(){if(glbModel){glbModel.visible=got===5;shipBody.visible=got<5}}
+function questObjects(){
+  [[-30,-34],[32,-42],[-36,12],[30,26],[-6,-50]].forEach((p,i)=>{
+    const it=new THREE.Group(),pg=partGroup(i,false);pg.scale.setScalar(.7);it.add(pg);
+    const beam=mk(new THREE.CylinderGeometry(.12,.12,16,6),new THREE.MeshBasicMaterial({color:0x39c5ff,transparent:true,opacity:.35,fog:false}),0,8,0);
+    it.add(beam);scene.add(it);cells.push({mesh:it,beam,pos:V(p[0],1.4,p[1]),on:true,relative:V(),idx:i});
+  });
+  for(const p of [[0,18,-120],[70,30,-210],[-60,45,-300]]){
+    const m=mk(new THREE.TorusGeometry(7,.5,6,12),M(0xff7a1a,{emissive:0xff7a1a,emissiveIntensity:.6}));
+    scene.add(m);rings.push({mesh:m,pos:V(...p),on:false,relative:V()});
+  }
+}
+
+/* low-poly models */
+function buildAstro(){
+  const W=M(0xe8ecf2),O=M(0xff7a1a),D=M(0x2a3350),G=M(0x8a93a8),Vz=M(0x39c5ff,{emissive:0x0a3a55}),H3=Math.PI/3,g=new THREE.Group();
+  g.add(mk(new THREE.CylinderGeometry(.42,.36,.8,6),W,0,1,0,0,H3/2));g.add(mk(new THREE.CylinderGeometry(.34,.3,.25,6),G,0,.5,0,0,H3/2));
+  g.add(mk(new THREE.IcosahedronGeometry(.42,0),W,0,1.75,0,0,0,0,[1,1.05,1]));g.add(mk(new THREE.IcosahedronGeometry(.3,0),Vz,0,1.75,.2,0,0,0,[1.15,.8,.7]));
+  g.add(mk(new THREE.BoxGeometry(.6,.7,.3),G,0,1.05,-.4));[-.15,.15].forEach(x=>g.add(mk(new THREE.CylinderGeometry(.09,.09,.6,5),O,x,1.05,-.62)));
+  g.add(mk(new THREE.BoxGeometry(.3,.2,.06),D,0,1.1,.37));
+  [-1,1].forEach(s=>{g.add(mk(new THREE.IcosahedronGeometry(.17,0),O,s*.5,1.35,0));g.add(mk(new THREE.CylinderGeometry(.12,.1,.6,5),W,s*.55,1.02,0,0,0,s*.15));
+    g.add(mk(new THREE.IcosahedronGeometry(.13,0),D,s*.6,.68,0));g.add(mk(new THREE.CylinderGeometry(.15,.13,.5,5),W,s*.18,.15,0));g.add(mk(new THREE.BoxGeometry(.26,.16,.4),O,s*.18,-.17,.07))});
+  g.position.y=.9;astroG=new THREE.Group();astroG.add(g);scene.add(astroG);
+}
+function buildShip(){
+  ship=new THREE.Group();ship.rotation.order='YXZ';scene.add(ship);
+  shipBody=new THREE.Group();shipBody.rotation.y=Math.PI;shipBody.scale.setScalar(1.6);ship.add(shipBody);
+  shipParts=PARTS.map((n,i)=>{const real=partGroup(i,false),ghost=partGroup(i,true);real.visible=false;shipBody.add(real,ghost);return{real,ghost}});
+}
+
+/* GLB loading (from Ceres Drift) */
+function loader(){const d=new DRACOLoader();d.setDecoderPath('https://unpkg.com/three@0.160.0/examples/jsm/libs/draco/');const l=new GLTFLoader();l.setDRACOLoader(d);return l}
+function showError(e){console.error(e);const el=byId('error');el.textContent='Could not read spacecraft.glb. Showing the built-in ship. Use the Load button or drag-drop a .glb.';el.hidden=false;setTimeout(()=>el.hidden=true,9000)}
+function installShip(gltf){
+  const model=gltf.scene||(gltf.scenes&&gltf.scenes[0]);if(!model)return showError('no scene');
+  if(gltf.animations&&gltf.animations.length){mixer=new THREE.AnimationMixer(model);mixer.clipAction(gltf.animations[0]).play()}
+  model.traverse(o=>{if(o.isMesh&&o.material)for(const m of Array.isArray(o.material)?o.material:[o.material]){if(m.map)m.map.colorSpace=THREE.SRGBColorSpace;if(m.side===THREE.DoubleSide)m.side=THREE.FrontSide}});
+  const box=new THREE.Box3().setFromObject(model),size=box.getSize(V());
+  model.position.sub(box.getCenter(V()));model.scale.multiplyScalar(SHIP_LENGTH/Math.max(size.x,size.y,size.z,1e-4));
+  const orient=new THREE.Group();orient.add(model);
+  if(size.x>=size.y&&size.x>=size.z)orient.rotation.y=Math.PI/2;else if(size.y>size.z)orient.rotation.x=-Math.PI/2;
+  const fix=new THREE.Group();fix.add(orient);fix.rotation.set(...SHIP_FIX_DEG.map(d=>THREE.MathUtils.degToRad(d)));
+  if(glbModel)ship.remove(glbModel);
+  glbModel=fix;ship.add(fix);refreshShip();
+}
+function bindLoading(){
+  const fi=byId('glbFile');byId('loadModel').addEventListener('click',()=>fi.click());
+  const parse=f=>f.arrayBuffer().then(b=>loader().parse(b,'',installShip,showError)).catch(showError);
+  fi.addEventListener('change',()=>{if(fi.files[0])parse(fi.files[0])});
+  addEventListener('dragover',e=>e.preventDefault());
+  addEventListener('drop',e=>{e.preventDefault();const f=[...(e.dataTransfer?.files||[])].find(f=>/\.glb$/i.test(f.name));if(f)parse(f)});
+  if(/^https?:$/.test(location.protocol))fetch(SHIP_MODEL_URL).then(r=>{if(!r.ok)throw 0;return r.arrayBuffer()}).then(b=>loader().parse(b,'',installShip,showError)).catch(()=>{});
+}
+
+/* mission */
+function resetMission(){
+  setArea(1);mode='foot';got=0;rg=0;won=false;snap=true;carry=null;portalOpen=false;coresIn=0;o2=100;ascended=false;lastSting=-9;litN=0;homeDone=false;pylons.forEach(p=>setPylon(p,false));cores.forEach(c=>c.on=true);
+  cells.forEach(c=>{c.on=true;c.beam.visible=true;c.mesh.scale.setScalar(1)});
+  shipParts.forEach((p,i)=>setBuilt(i,false));
+  rings.forEach(r=>{r.on=false;r.mesh.material.color.set(0xff7a1a);r.mesh.material.emissive.set(0xff7a1a)});
+  astroPos.set(0,0,10);shipPos.set(0,REST_Y,-6);shipYaw=0;position.copy(astroPos);
+  velocity.set(0,0,0);yaw=0;pitch=0;roll=0;vy=0;onGround=true;refreshShip();
+}
+const nearShip=()=>Math.hypot(astroPos.x-shipPos.x,astroPos.z-shipPos.z)<9;
+const canExit=()=>mode==='fly'&&position.y<REST_Y+.8&&Math.hypot(position.x,position.z)<dsc()&&velocity.length()<6;
+function interact(){
+  if(!playing)return;
+  if(mode==='foot'){
+    if(area===3){const p=nearPylon();if(p){setPylon(p,true);litN++;say(litN<4?'Pylon lit ('+litN+'/4)':'All pylons lit! The engines are restored and a gate home has opened. Board the ship.',litN<4?3:5);return}}
+    if(!nearShip())return;
+    if(area===1&&got<5){
+      if(!carry){say('Find a ship part and bring it here ('+got+'/5 installed).');return}
+      setBuilt(carry.idx,true);got++;say(PARTS[carry.idx]+' installed ('+got+'/5)'+(got===5?'. Ship complete!':''));carry=null;refreshShip();
+    }else if(area===3&&litN<4){say('The engines are seized. Light all 4 ancient pylons first ('+litN+'/4).',4);return
+    }else if(area===2&&coresIn<3){
+      if(!carry){say('The reactor is flooded. The ship stays locked until 3 thermal cores are installed ('+coresIn+'/3).',4);return}
+      carry.on=false;carry=null;coresIn++;say(coresIn<3?'Thermal core installed ('+coresIn+'/3)':'Reactor online! Board the ship and ascend to the surface.',coresIn<3?3:5);
+    }else{mode='fly';position.copy(shipPos);yaw=shipYaw;pitch=0;roll=0;velocity.set(0,0,0);snap=true}
+  }else if(canExit()){
+    mode='foot';shipPos.copy(position);shipYaw=yaw;
+    right.set(Math.cos(yaw),0,-Math.sin(yaw));astroPos.copy(shipPos).addScaledVector(right,6);astroPos.y=0;
+    position.copy(astroPos);velocity.set(0,0,0);pitch=0;snap=true;
+  }else say('Land on the pad and slow down to exit.');
+}
+
+/* input (from Ceres Drift) */
+function look(dx,dy){yaw=(yaw+dx*.0023)%(Math.PI*2);pitch=clamp(pitch-dy*.0023,-1.4,1.4)}
+function setPlaying(a){
+  playing=a;const locked=document.pointerLockElement===canvas;
+  byId('briefing').hidden=a;byId('aim').hidden=!a;
+  byId('lookKey').textContent=a&&!locked?'Drag':'Mouse';canvas.classList.toggle('drag-mode',a&&!locked);
+  if(a)byId('launchText').textContent='Resume mission';
+  else{keys.clear();velocity.set(0,0,0);drag=null;canvas.classList.remove('dragging')}
+}
+function bindInput(){
+  byId('launch').addEventListener('click',async()=>{setPlaying(true);canvas.focus({preventScroll:true});if(canvas.requestPointerLock){try{await canvas.requestPointerLock()}catch{}}});
+  byId('reset').addEventListener('click',resetMission);
+  document.addEventListener('pointerlockchange',()=>{if(document.pointerLockElement===canvas){hadLock=true;setPlaying(true)}else if(hadLock){hadLock=false;setPlaying(false)}});
+  document.addEventListener('mousemove',e=>{if(document.pointerLockElement===canvas)look(e.movementX,e.movementY)});
+  canvas.addEventListener('pointerdown',e=>{if(!playing||document.pointerLockElement===canvas||e.button!==0)return;drag={id:e.pointerId,x:e.clientX,y:e.clientY};try{canvas.setPointerCapture(e.pointerId)}catch{}canvas.classList.add('dragging')});
+  canvas.addEventListener('pointermove',e=>{if(!drag||e.pointerId!==drag.id)return;look(e.clientX-drag.x,e.clientY-drag.y);drag.x=e.clientX;drag.y=e.clientY});
+  canvas.addEventListener('lostpointercapture',()=>{drag=null;canvas.classList.remove('dragging')});
+  addEventListener('keydown',e=>{
+    if(!playing)return;
+    if(e.code==='Escape'){if(document.pointerLockElement===canvas)document.exitPointerLock();else setPlaying(false);return}
+    if(!flightKeys.has(e.code))return;e.preventDefault();
+    if(e.repeat)return;
+    if(e.code==='KeyR')resetMission();else if(e.code==='KeyF')interact();
+    keys.add(e.code);
+  });
+  addEventListener('keyup',e=>keys.delete(e.code));
+  addEventListener('blur',()=>{keys.clear();velocity.set(0,0,0)});
+}
+
+/* player + chase camera */
+function updatePlayer(dt){
+  forward.set(-Math.sin(yaw)*Math.cos(pitch),Math.sin(pitch),-Math.cos(yaw)*Math.cos(pitch));
+  right.set(Math.cos(yaw),0,-Math.sin(yaw));flat.set(-Math.sin(yaw),0,-Math.cos(yaw));
+  const fwd=keys.has('KeyW')-keys.has('KeyS'),side=keys.has('KeyD')-keys.has('KeyA'),boost=keys.has('ShiftLeft')||keys.has('ShiftRight');
+  if(playing&&mode==='foot'){
+    desired.set(0,0,0).addScaledVector(flat,fwd).addScaledVector(right,side);
+    if(desired.lengthSq()>1e-6)desired.normalize().multiplyScalar((boost?RUN:WALK)*(area===2?.7:1));
+    velocity.lerp(desired,1-Math.exp(-(area===2?5:10)*dt));astroPos.addScaledVector(velocity,dt);
+    for(const o of obs())pushOut(astroPos,o.x,o.z,o.r,o.h,.5);const sx=-Math.sin(shipYaw)*2,sz=-Math.cos(shipYaw)*2;pushOut(astroPos,shipPos.x+sx,shipPos.z+sz,1.5,3.4,.5);pushOut(astroPos,shipPos.x-sx,shipPos.z-sz,1.5,3.4,.5);
+    const r=Math.hypot(astroPos.x,astroPos.z),D=dsc();if(r>D){astroPos.x*=D/r;astroPos.z*=D/r}
+    if(onGround&&keys.has('Space')){vy=area===2?5:6.5;onGround=false}
+    vy-=(area===2?4:12)*dt;astroPos.y+=vy*dt;if(astroPos.y<=0){astroPos.y=0;vy=0;onGround=true}
+    position.copy(astroPos);
+  }else if(playing&&mode==='fly'){
+    const vert=keys.has('KeyE')-keys.has('KeyQ');
+    desired.set(0,vert,0).addScaledVector(forward,fwd).addScaledVector(right,side);
+    if(desired.lengthSq()>1e-6)desired.normalize().multiplyScalar(boost?BOOST_SPEED:FLY_SPEED);else desired.set(0,0,0);
+    velocity.lerp(desired,1-Math.exp(-7*dt));position.addScaledVector(velocity,dt);
+    const fl=area===2?seabedH(position.x,position.z)+REST_Y:area===3?seabedH(position.x,position.z)*1.6+REST_Y:REST_Y;if((area!==1||Math.hypot(position.x,position.z)<dsc()+4)&&position.y<fl){position.y=fl;if(velocity.y<0)velocity.y=0}
+    collideShip();
+    roll+=(-side*.55-roll)*(1-Math.exp(-5*dt));
+    shipPos.copy(position);shipYaw=yaw;
+  }
+  // models in floating-origin space (player focus sits at the origin)
+  ship.position.copy(shipPos).sub(position);
+  if(mode==='fly')ship.rotation.set(pitch,yaw,roll);else ship.rotation.set(0,shipYaw,0);
+  astroG.visible=mode==='foot';astroG.position.copy(astroPos).sub(position);astroG.rotation.y=yaw+Math.PI;
+  const back=mode==='fly'?13:6,up=mode==='fly'?2.8:2.2;
+  tmp.copy(position).addScaledVector(forward,-back);tmp.y+=up;if(mode==='foot')tmp.y=Math.max(tmp.y,.7);
+  if(snap){camWorld.copy(tmp);snap=false}else camWorld.lerp(tmp,1-Math.exp(-9*dt));
+  camera.position.copy(camWorld).sub(position);
+  camAim.copy(forward).multiplyScalar(mode==='fly'?8:4);camAim.y+=mode==='fly'?1.2:1.4;camera.lookAt(camAim);
+}
+
+/* world */
+function updateWorld(dt){
+  worldExtras(dt);
+  if(mixer)mixer.update(Math.min(time-lastMixer,.05));lastMixer=time;
+  ground.position.copy(position).negate();
+  for(const r of rocks){offset.copy(r.origin).addScaledVector(r.drift,time).sub(position);offset.set(wrap(offset.x,520),wrap(offset.y,520),wrap(offset.z,520));
+    r.mesh.position.copy(offset);r.relative.copy(offset);r.mesh.rotation.set(r.phase+time*r.spin,time*.13+r.phase*.4,0)}
+  for(const b of comets){
+    cometOffset(b,headOff,time);b.headWorld.copy(b.origin).add(headOff).sub(position);b.head.position.copy(b.headWorld);b.relative.copy(b.headWorld);
+    const p=b.pos;
+    for(let i=0;i<b.N;i++){const age=(i+.5)/b.N;cometOffset(b,offset,time-age*12);const sp=.24+age*5.2,curl=Math.sin(time*1.38-age*12)*age*1.8;offset.sub(headOff);
+      p[i*3]=b.headWorld.x+offset.x+Math.sin(i*2.399)*sp*.18;p[i*3+1]=b.headWorld.y+offset.y+curl+Math.cos(i*1.7+1.1)*sp*.18;p[i*3+2]=b.headWorld.z+offset.z+Math.sin(i*.9+2)*sp*.18}
+    b.tail.geometry.attributes.position.needsUpdate=true;
+  }
+  if(area===1)for(const c of cells){
+    if(c===carry){c.mesh.visible=true;c.mesh.scale.setScalar(.6);c.mesh.position.copy(astroPos).sub(position);c.mesh.position.y+=3.1}
+    else{c.mesh.visible=c.on;c.relative.copy(c.pos).sub(position);c.relative.y+=Math.sin(time*3)*.25;c.mesh.position.copy(c.relative)}
+    c.mesh.rotation.y=time*2;
+    if(c.on&&!carry&&mode==='foot'&&playing&&Math.hypot(astroPos.x-c.pos.x,astroPos.z-c.pos.z)<2.8&&astroPos.y<3){c.on=false;c.beam.visible=false;carry=c;say('Picked up the '+PARTS[c.idx].toLowerCase()+'. Carry it to the build station!')}}
+  if(area===1)for(const r of rings){r.relative.copy(r.pos).sub(position);r.mesh.position.copy(r.relative);r.mesh.rotation.z=time*.5;
+    if(!r.on&&mode==='fly'&&playing&&r.relative.length()<8){r.on=true;rg++;r.mesh.material.color.set(0x44ff88);r.mesh.material.emissive.set(0x22aa55);say('Ring '+rg+' of 3');if(rg===3){won=true;portalOpen=true;say('All rings cleared! A portal has opened. Fly into it!')}}}
+}
+
+/* collision, portal and area 2 */
+const obs1=[],obs2=[],cores=[],jellies=[],kelps=[],vents=[],tmp2=V(),tmp3=V(),PORTAL=V(-70,48,-360),SURFACE=70;
+let area=1,ground2=null,portal=null,portalOpen=false,coresIn=0,o2=100,ascended=false,lastHit=-9,lastSting=-9,bubbles=null,surface=null;
+const obs=()=>area===1?obs1:area===2?obs2:obs3;
+function pushOut(p,x,z,r,h,pad){
+  if(p.y>h)return false;
+  let dx=p.x-x,dz=p.z-z,d=Math.hypot(dx,dz);const m=r+pad;
+  if(d>=m)return false;
+  if(d<1e-4){dx=1;dz=0;d=1}
+  p.x=x+dx/d*m;p.z=z+dz/d*m;return true;
+}
+function collideShip(){
+  let hit=false;
+  const test=(rel,rad)=>{const d=rel.length(),m=rad+2.2;if(d<m&&d>1e-4){tmp2.copy(rel).divideScalar(d);position.addScaledVector(tmp2,-(m-d));const vn=velocity.dot(tmp2);if(vn>0)velocity.addScaledVector(tmp2,-vn*1.5);hit=true}};
+  if(area===1)for(const r of rocks){tmp3.copy(r.origin).addScaledVector(r.drift,time).sub(position);tmp3.set(wrap(tmp3.x,520),wrap(tmp3.y,520),wrap(tmp3.z,520));test(tmp3,r.radius*.95)}
+  if(area===1)for(const b of comets){cometOffset(b,tmp3,time);tmp3.add(b.origin).sub(position);test(tmp3,3.2)}
+  for(const o of obs())if(pushOut(position,o.x,o.z,o.r,o.h+1.5,2.2)){velocity.x*=.4;velocity.z*=.4;hit=true}
+  if(hit&&time-lastHit>.7){lastHit=time;say('Hull impact!')}
+}
+function buildPortal(){
+  portal=new THREE.Group();
+  portal.add(mk(new THREE.TorusGeometry(9,.8,8,28),new THREE.MeshStandardMaterial({color:0xb26bff,emissive:0xb26bff,emissiveIntensity:1,flatShading:true})));
+  portal.add(mk(new THREE.CircleGeometry(8.4,32),new THREE.MeshBasicMaterial({color:0x8a4dff,transparent:true,opacity:.55,side:THREE.DoubleSide,blending:THREE.AdditiveBlending,depthWrite:false,fog:false})));
+  portal.add(mk(new THREE.TorusGeometry(6.2,.25,6,24),new THREE.MeshBasicMaterial({color:0xff9be9,fog:false})));
+  portal.add(mk(new THREE.TorusGeometry(3.6,.2,6,20),new THREE.MeshBasicMaterial({color:0xffffff,fog:false})));
+  portal.visible=false;scene.add(portal);
+}
+const seabedH=(x,z)=>{const r=Math.hypot(x,z);return clamp((r-70)/90,0,1)*(7+5*Math.sin(x*.05)*Math.cos(z*.045))};
+const VENTS=[[-44,-34],[48,-30],[6,58]];
+function buildArea2(){
+  ground2=new THREE.Group();
+  const gg=new THREE.PlaneGeometry(900,900,110,110);gg.rotateX(-Math.PI/2);const gp=gg.attributes.position;
+  for(let i=0;i<gp.count;i++){const x=gp.getX(i),z=gp.getZ(i);gp.setY(i,seabedH(x,z)-(Math.hypot(x,z)>2?Math.random()*.35:0))}
+  gg.computeVertexNormals();ground2.add(new THREE.Mesh(gg,M(0x2f565c,{roughness:1})));
+  ground2.add(mk(new THREE.CylinderGeometry(9,9,.25,8),M(0x7f98a3),0,.1,0));
+  ground2.add(mk(new THREE.CylinderGeometry(10.5,10.5,.2,8),M(0x2ee6c8,{emissive:0x2ee6c8,emissiveIntensity:.5}),0,.05,0));
+  const clear=(x,z,m)=>Math.hypot(x,z)>13+m&&VENTS.every(v=>Math.hypot(v[0]-x,v[1]-z)>9+m);
+  // light shafts from the far-off surface
+  for(let i=0;i<8;i++){const s=mk(new THREE.CylinderGeometry(rnd(3,6),rnd(5,9),140,10,1,true),new THREE.MeshBasicMaterial({color:0x7fe6ff,transparent:true,opacity:.045,side:THREE.DoubleSide,blending:THREE.AdditiveBlending,depthWrite:false}),rnd(-70,70),70,rnd(-70,70),rnd(-.15,.15),0,rnd(-.15,.15));ground2.add(s)}
+  // kelp forest
+  for(let n=0;n<70;n++){const a=Math.random()*6.28,r=rnd(12,78),x=Math.cos(a)*r,z=Math.sin(a)*r;if(!clear(x,z,0))continue;
+    const h=rnd(6,18),g=new THREE.ConeGeometry(rnd(.25,.45),h,4);g.translate(0,h/2,0);
+    const k=mk(g,M(new THREE.Color().setHSL(rnd(.28,.38),.55,rnd(.22,.34))),x,0,z);ground2.add(k);kelps.push({mesh:k,ph:rnd(0,6.28)})}
+  // coral clusters
+  const cc=[0xff6f91,0xffa45c,0xc86bff,0x5ce1e6,0xffe066];
+  for(let n=0;n<40;n++){const a=Math.random()*6.28,r=rnd(14,74),x=Math.cos(a)*r,z=Math.sin(a)*r;if(!clear(x,z,1))continue;
+    const g=new THREE.Group(),col=cc[n%cc.length];g.position.set(x,0,z);
+    for(let i=0;i<4;i++){const s=rnd(.5,1.1);g.add(mk(i%2?new THREE.ConeGeometry(.4*s,2.4*s,5):new THREE.IcosahedronGeometry(.8*s,0),M(col,{emissive:col,emissiveIntensity:.18}),rnd(-1,1),i%2?1.2*s:.5*s,rnd(-1,1),rnd(-.3,.3),rnd(0,3),rnd(-.3,.3)))}
+    ground2.add(g);obs2.push({x,z,r:1.6,h:2.2})}
+  // boulders
+  for(let n=0;n<14;n++){const a=Math.random()*6.28,r=rnd(22,72),x=Math.cos(a)*r,z=Math.sin(a)*r;if(!clear(x,z,3))continue;const s=rnd(2.5,5);
+    ground2.add(mk(new THREE.IcosahedronGeometry(1,0),M(0x3b4a52),x,s*.35,z,rnd(0,3),rnd(0,3),0,[s,s*.8,s]));obs2.push({x,z,r:s*.9,h:s*.8+.3})}
+  // hydrothermal vents, each with a thermal core
+  VENTS.forEach(([x,z],i)=>{
+    ground2.add(mk(new THREE.ConeGeometry(2.4,5.5,6),M(0x2a2522),x,2.75,z));
+    const glow=mk(new THREE.IcosahedronGeometry(.7,0),new THREE.MeshBasicMaterial({color:0xff7a2a}),x,5.6,z);ground2.add(glow);
+    const L=new THREE.PointLight(0xff8a3d,80,34,2);L.position.set(x,7,z);ground2.add(L);
+    const N=70,pos=new Float32Array(N*3);for(let k=0;k<N;k++)pos.set([x,5.6+Math.random()*40,z],k*3);
+    const bg=new THREE.BufferGeometry();bg.setAttribute('position',new THREE.BufferAttribute(pos,3));
+    const pts=new THREE.Points(bg,new THREE.PointsMaterial({color:0xd8f6ff,size:.35,transparent:true,opacity:.7,depthWrite:false}));ground2.add(pts);
+    vents.push({x,z,y0:5.6,N,pos,pts,glow});obs2.push({x,z,r:2.3,h:5.5});
+    const m=new THREE.Group();
+    m.add(mk(new THREE.IcosahedronGeometry(.55,0),M(0xffb066,{emissive:0xff7a1a,emissiveIntensity:1.2})));
+    m.add(mk(new THREE.TorusGeometry(.9,.07,5,18),new THREE.MeshBasicMaterial({color:0xffd2a1})));
+    const beam=mk(new THREE.CylinderGeometry(.12,.12,16,6),new THREE.MeshBasicMaterial({color:0xff9a4d,transparent:true,opacity:.35}),0,8,0);m.add(beam);
+    ground2.add(m);const home=V(x+(x<0?4:-4),1.4,z+(z<0?3:-3));cores.push({mesh:m,beam,pos:home,on:true,relative:V()});
+  });
+  // drifting jellyfish
+  for(let n=0;n<18;n++){
+    const s=rnd(.8,1.5),g=new THREE.Group(),col=n%3?0xff7ad9:0x8ef0ff;
+    const dome=mk(new THREE.SphereGeometry(1,12,6,0,Math.PI*2,0,Math.PI/2),M(col,{emissive:col,emissiveIntensity:.7,transparent:true,opacity:.75,side:THREE.DoubleSide}));g.add(dome);
+    for(let t=0;t<6;t++){const a=t/6*6.28;g.add(mk(new THREE.CylinderGeometry(.03,.02,2.4,3),new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:.6}),Math.cos(a)*.6,-1.2,Math.sin(a)*.6))}
+    g.scale.setScalar(s);ground2.add(g);
+    const a=Math.random()*6.28,r=rnd(15,62);
+    jellies.push({mesh:g,dome,s,c:V(Math.cos(a)*r,0,Math.sin(a)*r),r:rnd(4,11),sp:rnd(.12,.3)*(n%2?1:-1),h:rnd(1.8,6),ph:rnd(0,6.28),pos:V(),relative:V()});
+  }
+  surface=mk(new THREE.PlaneGeometry(1400,1400),new THREE.MeshBasicMaterial({color:0x9fe8ff,transparent:true,opacity:.4,side:THREE.DoubleSide,depthWrite:false}),0,SURFACE,0,-Math.PI/2);ground2.add(surface);
+  // ambient bubbles around the player (player-relative space)
+  const N=600,bp=new Float32Array(N*3);for(let i=0;i<N*3;i++)bp[i]=rnd(-50,50);
+  const bgeo=new THREE.BufferGeometry();bgeo.setAttribute('position',new THREE.BufferAttribute(bp,3));
+  bubbles=new THREE.Points(bgeo,new THREE.PointsMaterial({color:0xc9f3ff,size:.16,transparent:true,opacity:.55,depthWrite:false}));
+  ground2.visible=false;bubbles.visible=false;scene.add(ground2,bubbles);
+}
+function setArea(n){
+  area=n;const sea=n===2,ember=n===3,space=n===1;
+  skyMesh.visible=starPts.visible=planetG.visible=space;
+  rocks.forEach(r=>r.mesh.visible=space);comets.forEach(b=>{b.head.visible=b.tail.visible=space});
+  scene.background.set(sea?0x021c2a:ember?0x1c0905:0x070810);
+  scene.fog=sea?new THREE.FogExp2(0x03283a,.017):ember?new THREE.FogExp2(0x2a0e07,.0065):null;
+  sunL.color.set(sea?0x8fe8ff:ember?0xff9a6a:0xfff0dd);sunL.intensity=sea?1.4:ember?1.8:2.6;ambL.color.set(sea?0x1f5d74:ember?0x5a2216:0x39405f);
+  rings.forEach(r=>r.mesh.visible=space);if(!space)cells.forEach(c=>c.mesh.visible=false);
+  ground.visible=space;ground2.visible=sea;ground3.visible=ember;bubbles.visible=!space;
+  bubbles.material.color.set(ember?0xff8a3d:0xc9f3ff);bubbles.material.size=ember?.24:.16;
+  const pc=n===1?0x3fb8ff:n===2?0xff5a1a:0xb26bff;portal.children[0].material.color.set(pc);portal.children[0].material.emissive.set(pc);portal.children[1].material.color.set(pc);
+}
+function enterArea2(){
+  setArea(2);carry=null;mode='foot';shipPos.set(0,REST_Y,0);shipYaw=0;
+  astroPos.set(0,0,9);position.copy(astroPos);velocity.set(0,0,0);yaw=0;pitch=0;roll=0;vy=0;onGround=true;o2=100;snap=true;
+  say('Splashdown in Abyssal Deep! Seawater flooded the reactor. Recover 3 thermal cores from the vents.',6);
+}
+function worldExtras(dt){
+  ground2.position.copy(position).negate();ground3.position.copy(position).negate();
+  const pt=portalTarget();portal.visible=!!pt;
+  if(pt){
+    portal.position.copy(pt[0]).sub(position);portal.lookAt(0,0,0);
+    portal.children[1].rotation.z=-time;portal.children[2].rotation.z=time*2;portal.children[3].rotation.z=-time*3;
+    if(mode==='fly'&&playing&&portal.position.length()<7.5){pt[1]();return}
+  }
+  if(area>=2)updateParticles(dt);
+  if(area===3){area3Update(dt);return}
+  if(area!==2)return;
+  const above=position.y>SURFACE;scene.fog.density=above?.0025:.017;scene.fog.color.set(above?0x7fb8d0:0x03283a);scene.background.set(above?0x6fb3d2:0x021c2a);
+  for(const k of kelps){k.mesh.rotation.z=Math.sin(time*.8+k.ph)*.13;k.mesh.rotation.x=Math.cos(time*.6+k.ph)*.08}
+  for(const v of vents){const p=v.pos;for(let i=0;i<v.N;i++){let y=p[i*3+1]+dt*(3+i%5);if(y>v.y0+40)y=v.y0;const w=.3+(y-v.y0)*.05;p[i*3]=v.x+Math.sin(y*.7+i)*w;p[i*3+1]=y;p[i*3+2]=v.z+Math.cos(y*.6+i*1.3)*w}
+    v.pts.geometry.attributes.position.needsUpdate=true;v.glow.scale.setScalar(1+Math.sin(time*6+v.x)*.15)}
+  for(const j of jellies){const a=time*j.sp+j.ph;j.pos.set(j.c.x+Math.cos(a)*j.r,j.h+Math.sin(time*1.3+j.ph)*1.2,j.c.z+Math.sin(a)*j.r);j.mesh.position.copy(j.pos);j.dome.scale.y=.85+Math.sin(time*3+j.ph)*.18;j.relative.copy(j.pos).sub(position);
+    if(playing&&mode==='foot'&&time-lastSting>1.2&&j.pos.distanceTo(tmp3.copy(astroPos).setY(astroPos.y+1.2))<1.9*j.s){lastSting=time;o2=Math.max(0,o2-15);say('Jellyfish sting! Oxygen -15%')}}
+  for(const c of cores){
+    if(c===carry){c.mesh.visible=true;c.mesh.position.copy(astroPos);c.mesh.position.y+=3.1;c.beam.visible=false}
+    else{c.mesh.visible=c.on;c.mesh.position.copy(c.pos);c.mesh.position.y+=Math.sin(time*3+c.pos.x)*.25;c.beam.visible=c.on}
+    c.mesh.children[1].rotation.x=time*2;c.mesh.rotation.y=time*1.5;c.relative.copy(c.mesh.position).sub(position);
+    if(c.on&&!carry&&mode==='foot'&&playing&&Math.hypot(astroPos.x-c.pos.x,astroPos.z-c.pos.z)<2.8&&astroPos.y<3){c.on=false;carry=c;say('Thermal core recovered. Carry it back to the ship!')}
+  }
+  if(playing&&mode==='foot'){
+    if(nearShip())o2=Math.min(100,o2+25*dt);else o2-=1.6*dt;
+    if(o2<=0){o2=100;if(carry){carry.on=true;carry=null}astroPos.set(shipPos.x,0,shipPos.z+8);position.copy(astroPos);velocity.set(0,0,0);vy=0;snap=true;say('Oxygen ran out. Your suit beacon pulled you back to the ship.',4)}
+  }
+  surface.position.set(position.x,SURFACE,position.z);
+  if(playing&&mode==='fly'&&!ascended&&position.y>=SURFACE){ascended=true;say('You broke the surface! A rift portal has opened in the sky. Fly into it.',6)}
+}
+
+/* area 3: Ember Rift */
+const PYLONS=[[-40,-30],[42,-36],[46,34],[-38,40]],PORTAL2=V(0,SURFACE+30,-90),PORTAL3=V(0,45,-130);
+const obs3=[],pools=[],pylons=[];let ground3=null,litN=0,homeDone=false;
+function buildArea3(){
+  ground3=new THREE.Group();
+  const gg=new THREE.PlaneGeometry(900,900,110,110);gg.rotateX(-Math.PI/2);const gp=gg.attributes.position;
+  for(let i=0;i<gp.count;i++){const x=gp.getX(i),z=gp.getZ(i);gp.setY(i,seabedH(x,z)*1.6-(Math.hypot(x,z)>2?Math.random()*.4:0))}
+  gg.computeVertexNormals();ground3.add(new THREE.Mesh(gg,M(0x2b2120,{roughness:1})));
+  ground3.add(mk(new THREE.CylinderGeometry(9,9,.25,8),M(0x5c4c49),0,.1,0));
+  ground3.add(mk(new THREE.CylinderGeometry(10.5,10.5,.2,8),M(0xff4d1a,{emissive:0xff4d1a,emissiveIntensity:.6}),0,.05,0));
+  [[-18,-48],[22,-14],[-26,10],[10,30],[-58,-6],[60,2],[-10,62],[28,-62]].forEach(([x,z],i)=>{
+    const r=rnd(4,6.5),m=mk(new THREE.CircleGeometry(r,14),new THREE.MeshStandardMaterial({color:0xff5a1a,emissive:0xff4a10,emissiveIntensity:1.4,flatShading:true}),x,.07,z,-Math.PI/2);ground3.add(m);
+    for(let k=0;k<7;k++){const a=k/7*6.28+rnd(0,.5),s=rnd(.5,1.1);ground3.add(mk(new THREE.IcosahedronGeometry(1,0),M(0x1c1515),x+Math.cos(a)*(r+.4),s*.25,z+Math.sin(a)*(r+.4),rnd(0,3),rnd(0,3),0,[s,s*.6,s]))}
+    if(i%2===0){const L=new THREE.PointLight(0xff5a1a,60,30,2);L.position.set(x,3,z);ground3.add(L)}
+    pools.push({x,z,r,mesh:m,relative:V()});
+  });
+  const free=(x,z,m)=>Math.hypot(x,z)>14+m&&pools.every(p=>Math.hypot(p.x-x,p.z-z)>p.r+3+m)&&PYLONS.every(q=>Math.hypot(q[0]-x,q[1]-z)>7+m);
+  for(let n=0;n<45;n++){const a=Math.random()*6.28,r=rnd(16,76),x=Math.cos(a)*r,z=Math.sin(a)*r;if(!free(x,z,1))continue;
+    const rad=rnd(1,2.4),h=rnd(4,14);ground3.add(mk(new THREE.ConeGeometry(rad,h,5),M(0x3a2b27),x,h/2,z,0,rnd(0,3)));obs3.push({x,z,r:rad*.8,h})}
+  for(const [x,z,s] of [[180,-260,90],[-240,-180,70],[60,300,80],[-300,200,60]]){
+    ground3.add(mk(new THREE.ConeGeometry(s,s*1.3,9),M(0x2a1c1a),x,s*.6,z));
+    ground3.add(mk(new THREE.CylinderGeometry(s*.18,s*.18,2,9),new THREE.MeshBasicMaterial({color:0xff6a20}),x,s*1.25,z));
+  }
+  PYLONS.forEach(([x,z])=>{
+    const g=new THREE.Group();g.position.set(x,0,z);
+    g.add(mk(new THREE.BoxGeometry(2.6,.6,2.6),M(0x2e2626),0,.3,0));
+    g.add(mk(new THREE.ConeGeometry(1.05,8,4),M(0x3b3340),0,4.5,0,0,Math.PI/4));
+    const crystal=mk(new THREE.OctahedronGeometry(.8,0),M(0x5a4a5c),0,9.2,0,0,0,0,[1,1.5,1]);g.add(crystal);
+    const beam=mk(new THREE.CylinderGeometry(.15,.15,60,6),new THREE.MeshBasicMaterial({color:0xffc35a,transparent:true,opacity:.35,depthWrite:false}),0,39,0);beam.visible=false;g.add(beam);
+    ground3.add(g);pylons.push({x,z,crystal,beam,lit:false,relative:V()});obs3.push({x,z,r:1.6,h:9});
+  });
+  ground3.visible=false;scene.add(ground3);
+}
+function setPylon(p,on){p.lit=on;p.beam.visible=on;const m=p.crystal.material;m.color.set(on?0xffd36b:0x5a4a5c);m.emissive.set(on?0xffa53a:0x000000);m.emissiveIntensity=on?1.5:0}
+const nearPylon=()=>pylons.find(p=>!p.lit&&Math.hypot(astroPos.x-p.x,astroPos.z-p.z)<3.8);
+function enterArea3(){
+  setArea(3);carry=null;mode='foot';shipPos.set(0,REST_Y,0);shipYaw=0;
+  astroPos.set(0,0,9);position.copy(astroPos);velocity.set(0,0,0);yaw=0;pitch=0;roll=0;vy=0;onGround=true;o2=100;snap=true;
+  say("You crossed into the Ember Rift. The heat seized the ship's engines. Light the 4 ancient pylons to restore power.",6);
+}
+function goHome(){
+  setArea(1);mode='foot';portalOpen=false;homeDone=true;shipPos.set(0,REST_Y,-6);shipYaw=0;
+  astroPos.set(0,0,10);position.copy(astroPos);velocity.set(0,0,0);yaw=0;pitch=0;roll=0;vy=0;onGround=true;snap=true;
+  say('The gate carried you home to Ceres. All three dimensions cleared!',7);
+}
+function portalTarget(){
+  if(area===1&&portalOpen)return[PORTAL,enterArea2];
+  if(area===2&&ascended)return[PORTAL2,enterArea3];
+  if(area===3&&litN===4)return[PORTAL3,goHome];
+  return null;
+}
+function area3Update(dt){
+  for(const p of pools){p.mesh.material.emissiveIntensity=1.2+Math.sin(time*2+p.x)*.35;p.relative.set(p.x-position.x,-position.y,p.z-position.z)}
+  for(const p of pylons){p.relative.set(p.x-position.x,-position.y,p.z-position.z);p.crystal.rotation.y=time*(p.lit?2:.4);p.crystal.position.y=9.2+(p.lit?Math.sin(time*2+p.x)*.3:0)}
+  if(playing&&mode==='foot'){
+    const inLava=astroPos.y<.5&&pools.some(p=>Math.hypot(astroPos.x-p.x,astroPos.z-p.z)<p.r);
+    if(inLava){o2-=40*dt;if(time-lastSting>1.5){lastSting=time;say('Lava! Your heat shield is failing. Get out!')}}
+    else o2=Math.min(100,o2+(nearShip()?30:6)*dt);
+    if(o2<=0){o2=100;astroPos.set(shipPos.x,0,shipPos.z+8);position.copy(astroPos);velocity.set(0,0,0);vy=0;snap=true;say('Heat shield failed. Emergency teleport back to the ship.',4)}
+  }
+}
+function updateParticles(dt){
+  const bp=bubbles.geometry.attributes.position.array,up=area===3?2.6:1.4;
+  for(let i=0;i<bp.length;i+=3){bp[i]=wrap(bp[i]-velocity.x*dt,100);bp[i+1]=wrap(bp[i+1]+dt*up-velocity.y*dt,100);bp[i+2]=wrap(bp[i+2]-velocity.z*dt,100)}
+  bubbles.geometry.attributes.position.needsUpdate=true;
+}
+
+/* HUD */
+function drawRadar(){
+  const c=130,R=110;radar.clearRect(0,0,260,260);radar.strokeStyle='#dce4ff39';radar.lineWidth=1;
+  for(const k of [R/3,R*2/3,R]){radar.beginPath();radar.arc(c,c,k,0,6.283);radar.stroke()}
+  radar.beginPath();radar.moveTo(c-R,c);radar.lineTo(c+R,c);radar.moveTo(c,c-R);radar.lineTo(c,c+R);radar.stroke();
+  const sw=time*.9;radar.beginPath();radar.moveTo(c,c);radar.arc(c,c,R,sw-.34,sw);radar.closePath();radar.fillStyle='#9ee8ff12';radar.fill();
+  const dot=(b,col,s)=>{const r=b.relative;if(r.length()>180)return;const h=r.x*Math.cos(yaw)+r.z*Math.sin(yaw),a=r.x*Math.sin(yaw)-r.z*Math.cos(yaw);
+    radar.globalAlpha=clamp(1-Math.abs(r.y)/200,.25,1);radar.fillStyle=col;radar.beginPath();radar.arc(c+h*R/180,c-a*R/180,s,0,6.283);radar.fill();radar.globalAlpha=1};
+  if(area===1){rocks.forEach(b=>dot(b,'#ffa57b',b.radius>9?4:2.7));comets.forEach(b=>dot(b,'#a4ecff',5))}
+  if(area===1){cells.forEach(b=>b.on&&dot(b,'#39c5ff',3.5));rings.forEach(b=>!b.on&&dot(b,'#8dff9c',4.5));if(portalOpen)dot({relative:tmp2.copy(PORTAL).sub(position)},'#d28cff',6)}else if(area===2){jellies.forEach(b=>dot(b,'#ff7ad9',2.5));cores.forEach(b=>b.on&&dot(b,'#ff9a4d',4))}else{pools.forEach(b=>dot(b,'#ff5a2a',4));pylons.forEach(b=>!b.lit&&dot(b,'#ffd36b',4.5))}
+  {const pt=portalTarget();if(pt&&area!==1)dot({relative:tmp2.copy(pt[0]).sub(position)},'#d28cff',6)}
+  if(mode==='foot'){const s={relative:tmp.copy(shipPos).sub(position)};dot(s,'#ffffff',4)}
+  radar.fillStyle='#f2ede8';radar.beginPath();radar.moveTo(c,c-7);radar.lineTo(c+5,c+5);radar.lineTo(c,c+2);radar.lineTo(c-5,c+5);radar.closePath();radar.fill();
+}
+function updateHud(){
+  const d=((Math.round(yaw*180/Math.PI)%360)+360)%360;
+  byId('heading').textContent=String(d).padStart(3,'0')+'°';byId('speed').textContent=Math.round(velocity.length())+' u/s';
+  byId('distLabel').textContent=area===2?'Depth':'From start';
+  byId('distance').textContent=area===2?Math.max(0,Math.round((SURFACE-position.y)*12))+' m':Math.round(position.length())+' u';
+  byId('o2box').hidden=area===1;byId('o2label').textContent=area===3?'Heat shield':'Oxygen';const oe=byId('o2');oe.textContent=Math.ceil(o2)+'%';oe.style.color=o2<25?'#ff6b6b':'';
+  let o;
+  if(area===3)o=litN<4?(nearPylon()?'Press F to light the pylon':'Light the ancient pylons ('+litN+'/4)'):mode==='fly'?'Fly into the gate home ('+Math.round(tmp2.copy(PORTAL3).sub(position).length())+' u)':'Pylons lit: board the ship';
+  else if(area===1&&homeDone)o='Home on Ceres: all three dimensions cleared!';
+  else if(area===2)o=ascended?'Rift open above the surface: fly into it ('+Math.round(tmp2.copy(PORTAL2).sub(position).length())+' u)':mode==='fly'?'Ascend to the surface':coresIn<3?(carry?'Carry the thermal core to the ship':'Recover thermal cores from the vents ('+coresIn+'/3)'):'Reactor online: board the ship';
+  else if(won)o='Portal open: fly into the portal ('+Math.round(tmp2.copy(PORTAL).sub(position).length())+' u)';
+  else if(mode==='fly')o='Fly through the rings ('+rg+'/3)';
+  else if(got<5)o=carry?'Task: carry the '+PARTS[carry.idx].toLowerCase()+' to the build station':'Task: find ship parts ('+got+'/5 built)';
+  else o='Ship assembled: board it';
+  byId('status').textContent=o;drawRadar();
+}
+function updatePrompt(){
+  let p='';
+  if(toastT>0)p=toast;
+  else if(playing&&mode==='foot'&&area===3&&nearPylon())p='Press F to light the pylon';
+  else if(playing&&mode==='foot'&&nearShip())p=area===3?(litN<4?'Ship locked: light all 4 pylons first':'Press F to board the ship'):area===2?(coresIn<3?(carry?'Press F to install the thermal core':'Ship locked: recover thermal cores first'):'Press F to board the ship'):got<5?(carry?'Press F to install the '+PARTS[carry.idx].toLowerCase():'Find a ship part first'):'Press F to board the ship';
+  else if(playing&&canExit())p='Press F to exit the ship';
+  const el=byId('prompt');el.hidden=!p;el.textContent=p;
+}
+
+function frame(now){
+  const dt=prev?Math.min((now-prev)/1000,.05):0;prev=now;time+=dt;if(toastT>0)toastT-=dt;
+  updatePlayer(dt);updateWorld(dt);renderer.render(scene,camera);updatePrompt();
+  if(time-prevHud>=.075){prevHud=time;updateHud()}
+  requestAnimationFrame(frame);
+}
+try{start()}catch(e){console.error(e);const el=byId('error');el.textContent='The 3D view could not start. Use a desktop browser with WebGL and internet access for three.js.';el.hidden=false;byId('launch').disabled=true}
+</script>
+</body>
+</html>
